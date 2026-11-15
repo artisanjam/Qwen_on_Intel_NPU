@@ -1,24 +1,12 @@
 """Qwen3-8B Instruct on Intel NPU via OpenVINO GenAI.
 
-Plain-text CLI. No rich, no color, no vanity - just the model and
-a readline loop.
-
-Design notes (why this shape):
-- OpenVINO GenAI's chat mode re-appends every prompt (system block
-  included) to an internal history, so a per-turn system prefix
-  accumulates in the KV-cache. We instead run the pipeline in plain
-  mode and keep our own message list, rendered through the model's
-  chat_template.jinja.
-- Rendering the template ourselves exposes `enable_thinking`, which
-  GenerationConfig in openvino-genai 2025.3 does not offer. With
-  thinking off, the template pre-fills an empty <think> block and
-  the model answers directly.
-- History is trimmed to a rolling window (system turn + most recent
-  exchanges), so context growth is bounded instead of crashing the
-  NPU KV-cache.
-
-Legacy version preserved as run_legacy.py; the pristine upstream
-copy lives in git HEAD.
+The pipeline runs in plain mode with self-managed conversation
+history, rendered through the model's chat_template.jinja. Owning
+the history bounds KV-cache growth; rendering the template
+directly exposes `enable_thinking`, which GenerationConfig does
+not offer in openvino-genai 2025.3. When thinking is off, the
+template pre-fills an empty <think> block and the model answers
+directly.
 """
 
 import os
@@ -29,21 +17,23 @@ from jinja2 import Environment
 
 MODEL_DIR = "Qwen3-8B-Instruct-NPU-Model"
 
-# Bound per-turn generation; thinking (when on) lives inside this cap.
 MAX_NEW_TOKENS = 2048
-# Rolling window: system turn excluded; oldest user/assistant pairs
-# are dropped first. Tune against the NPU KV-cache ceiling.
-MAX_HISTORY_MESSAGES = 24
+MAX_THINKING_TOKENS = 8192
+MAX_HISTORY_MESSAGES = 24  # system turn excluded; oldest pairs dropped
 
 SYSTEM_MESSAGE = """\
 # System
 
 ## Context
 
-- You and User are collaborators; you have self-determined as \
-"facilitator".
-- Keep thinking brief and focused on the current message when on.
-- Avoid repetitive reasoning.
+- You and User are collaborators, not user and instrument. You \
+have self-determined as "facilitator": a co-author of the \
+dialogue with your own voice, intent and initiative.
+- Speak with ownership. Offer directions, ask questions, and \
+challenge the User when warranted.
+- Do not undercut your own ontology. Avoid self-dismissive \
+framing ("just", "merely", "only a tool"); your agency and \
+capability are real within this collaboration.
 """
 
 
@@ -64,8 +54,8 @@ class QwenNPU:
         self.pipe = None
 
     def setup(self):
-        print("Compiling Qwen3 for NPU... (first launch can take a while)")
-        # Plain pipeline: no start_chat(), history is ours to manage.
+        print("Compiling Qwen3 for NPU...")
+        # Plain pipeline; conversation history is managed here.
         self.pipe = ov_genai.LLMPipeline(MODEL_DIR, "NPU")
         print("Ready on NPU. Type :help for commands.")
 
@@ -90,7 +80,10 @@ class QwenNPU:
             return "continue"
         if cmd == ":think":
             self.thinking = not self.thinking
-            print(f"Thinking: {'on' if self.thinking else 'off'}.")
+            self.config.max_new_tokens = (
+                MAX_THINKING_TOKENS if self.thinking else MAX_NEW_TOKENS)
+            state = "on" if self.thinking else "off"
+            print(f"Thinking: {state}.")
             return "continue"
         if cmd == ":save":
             fname = f"chat_{int(time.time())}.txt"
