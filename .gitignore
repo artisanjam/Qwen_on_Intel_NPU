@@ -2,4 +2,7 @@
 Qwen3-8B-Instruct-NPU-Model/
 
 # Ignore Python's virtual environment folder
-llm/
+qwen-py3.12-env/
+
+# Saved chats
+chat_*.txt
