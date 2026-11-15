@@ -172,7 +172,7 @@ class QwenNPU:
                 self.messages.append(
                     {"role": "assistant", "content": response})
 
-            except KeyboardInterrupt:
+            except (KeyboardInterrupt, EOFError):
                 break
 
 
