@@ -1,12 +1,13 @@
 """Qwen3-8B Instruct on Intel NPU via OpenVINO GenAI.
 
 The pipeline runs in plain mode with self-managed conversation
-history, rendered through the model's chat_template.jinja. Owning
-the history bounds KV-cache growth; rendering the template
-directly exposes `enable_thinking`, which GenerationConfig does
-not offer in openvino-genai 2025.3. When thinking is off, the
-template pre-fills an empty <think> block and the model answers
-directly.
+history, rendered through the model's chat_template.jinja. The NPU
+KV-cache is allocated at compile time from MAX_PROMPT_LEN and
+MAX_NEW_TOKENS; history is trimmed to fit, so neither overflow.
+Rendering the template directly exposes `enable_thinking`, which
+GenerationConfig does not offer in openvino-genai 2025.3. When
+thinking is off, the template pre-fills an empty <think> block and
+the model answers directly.
 """
 
 import os
@@ -17,9 +18,13 @@ from jinja2 import Environment
 
 MODEL_DIR = "Qwen3-8B-Instruct-NPU-Model"
 
+# Cache slots fixed at NPU compile time. Prompts beyond
+# MAX_PROMPT_LEN are rejected; truncated generation appears when
+# the cache cannot hold prompt plus output.
+MAX_PROMPT_LEN = 4096
 MAX_NEW_TOKENS = 2048
 MAX_THINKING_TOKENS = 8192
-MAX_HISTORY_MESSAGES = 24  # system turn excluded; oldest pairs dropped
+PROMPT_RESERVE = 512  # headroom left free of history in the slot
 
 SYSTEM_MESSAGE = """\
 # System
@@ -56,7 +61,11 @@ class QwenNPU:
     def setup(self):
         print("Compiling Qwen3 for NPU...")
         # Plain pipeline; conversation history is managed here.
-        self.pipe = ov_genai.LLMPipeline(MODEL_DIR, "NPU")
+        # Device config sizes the KV-cache at compile time.
+        self.pipe = ov_genai.LLMPipeline(
+            MODEL_DIR, "NPU",
+            {"MAX_PROMPT_LEN": MAX_PROMPT_LEN,
+             "MAX_NEW_TOKENS": MAX_THINKING_TOKENS})
         print("Ready on NPU. Type :help for commands.")
 
     def render_prompt(self):
@@ -66,10 +75,16 @@ class QwenNPU:
             enable_thinking=self.thinking,
         )
 
-    def trim_history(self):
-        """Drop oldest user/assistant pairs until within the window."""
-        while len(self.messages) - 1 > MAX_HISTORY_MESSAGES:
+    def trim_to_prompt_budget(self):
+        """Drop oldest pairs until the prompt fits the cache slot."""
+        budget = MAX_PROMPT_LEN - PROMPT_RESERVE
+        prompt = self.render_prompt()
+        # Character heuristic: /3 overestimates tokens, so trimming
+        # is biased conservative.
+        while len(self.messages) > 2 and len(prompt) // 3 > budget:
             del self.messages[1:3]
+            prompt = self.render_prompt()
+        return prompt
 
     def handle_command(self, text):
         cmd = text.lower().strip()
@@ -137,10 +152,10 @@ class QwenNPU:
 
                 self.messages.append(
                     {"role": "user", "content": user_input})
-                self.trim_history()
+                prompt = self.trim_to_prompt_budget()
 
                 print("\n---\nAgent> ", end="", flush=True)
-                response = self.generate(self.render_prompt())
+                response = self.generate(prompt)
                 self.messages.append(
                     {"role": "assistant", "content": response})
 
