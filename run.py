@@ -118,7 +118,7 @@ class QwenNPU:
     def run(self):
         while True:
             try:
-                user_input = input("You> ").strip()
+                user_input = input("\n---\nYou> ").strip()
                 if not user_input:
                     continue
 
@@ -132,7 +132,7 @@ class QwenNPU:
                     {"role": "user", "content": user_input})
                 self.trim_history()
 
-                print("Qwen> ", end="", flush=True)
+                print("\n---\nAgent> ", end="", flush=True)
                 response = self.generate(self.render_prompt())
                 self.messages.append(
                     {"role": "assistant", "content": response})
