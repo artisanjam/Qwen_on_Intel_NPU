@@ -86,21 +86,28 @@ class QwenNPU:
             print(f"Thinking: {state}.")
             return "continue"
         if cmd == ":save":
-            fname = f"chat_{int(time.time())}.txt"
-            with open(fname, "w", encoding="utf-8") as handle:
-                for message in self.messages[1:]:
-                    role = message["role"].capitalize()
-                    handle.write(f"{role}: {message['content']}\n\n")
+            fname = self.save_transcript()
             print(f"Saved to {fname}")
             return "continue"
         if cmd == ":help":
-            print("Commands:")
-            print("  :think - toggle thinking mode")
-            print("  :save  - export the transcript")
-            print("  :clear - reset the conversation")
-            print("  :exit  - close")
+            self.print_help()
             return "continue"
         return None
+
+    def save_transcript(self):
+        fname = f"chat_{int(time.time())}.txt"
+        with open(fname, "w", encoding="utf-8") as handle:
+            for message in self.messages[1:]:
+                role = message["role"].capitalize()
+                handle.write(f"{role}: {message['content']}\n\n")
+        return fname
+
+    def print_help(self):
+        print("Commands:")
+        print("  :think - toggle thinking mode")
+        print("  :save  - export the transcript")
+        print("  :clear - reset the conversation")
+        print("  :exit  - close")
 
     def generate(self, prompt):
         """Stream tokens to stdout; return the full response text."""
