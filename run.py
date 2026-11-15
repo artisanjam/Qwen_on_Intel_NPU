@@ -32,6 +32,13 @@ MAX_NEW_TOKENS = 2048
 MAX_THINKING_TOKENS = 8192
 PROMPT_RESERVE = 512  # headroom left free of history in the slot
 
+# Sampled decoding at Qwen3's recommended settings. Greedy
+# decoding on the int4 build falls into repetitive basins in long
+# thinking blocks; sampling keeps the continuation out of them.
+SAMPLING_TEMPERATURE = 0.6
+SAMPLING_TOP_P = 0.9
+SAMPLING_TOP_K = 20
+
 class EOF:
     """Sentinel: stdin closed (Ctrl-D / Ctrl-Z at the prompt)."""
 
@@ -76,6 +83,10 @@ class QwenNPU:
         self.template = load_chat_template()
         self.config = ov_genai.GenerationConfig()
         self.config.max_new_tokens = MAX_NEW_TOKENS
+        self.config.do_sample = True
+        self.config.temperature = SAMPLING_TEMPERATURE
+        self.config.top_p = SAMPLING_TOP_P
+        self.config.top_k = SAMPLING_TOP_K
         self.messages = [{"role": "system", "content": SYSTEM_MESSAGE}]
         self.thinking = False
         self.pipe = None
@@ -147,8 +158,9 @@ class QwenNPU:
         print("  :save  - export the transcript")
         print("  :clear - reset the conversation")
         print("  :exit  - close")
-        print("Enter stops an answer mid-stream (partial answer kept).")
-        print("Ctrl-C exits the session at any point.")
+        print("Enter or Ctrl-C stops an answer mid-stream; the partial")
+        print("answer is kept and the session continues. Ctrl-C at the")
+        print("prompt exits.")
 
     def _read_stdin(self):
         """Own stdin so typed input can interrupt streamed generation."""
@@ -178,6 +190,7 @@ class QwenNPU:
         The streamer polls the stdin queue each token, so Enter (or
         Ctrl-D followed by Enter on Windows) stops generation
         without ending the session; the partial answer is kept.
+        Ctrl-C also ends the turn here, not the session.
         """
         chunks = []
 
@@ -186,7 +199,10 @@ class QwenNPU:
             print(token, end="", flush=True)
             return self.interrupted()
 
-        self.pipe.generate(prompt, self.config, streamer)
+        try:
+            self.pipe.generate(prompt, self.config, streamer)
+        except KeyboardInterrupt:
+            pass  # ends the turn with the partial answer; session stays up
         print()  # newline after the streamed answer
         return "".join(chunks)
 
