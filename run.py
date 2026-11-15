@@ -8,9 +8,15 @@ Rendering the template directly exposes `enable_thinking`, which
 GenerationConfig does not offer in openvino-genai 2025.3. When
 thinking is off, the template pre-fills an empty <think> block and
 the model answers directly.
+A daemon thread owns stdin, so Enter interrupts streamed generation
+and the Ctrl key that closes stdin (Ctrl-D, Ctrl-Z on Windows)
+exits the session.
 """
 
 import os
+import queue
+import sys
+import threading
 import time
 
 import openvino_genai as ov_genai
@@ -25,6 +31,8 @@ MAX_PROMPT_LEN = 4096
 MAX_NEW_TOKENS = 2048
 MAX_THINKING_TOKENS = 8192
 PROMPT_RESERVE = 512  # headroom left free of history in the slot
+
+EOF = object()  # sentinel: stdin closed (Ctrl-D / Ctrl-Z at the prompt)
 
 SYSTEM_MESSAGE = """\
 # System
@@ -70,6 +78,8 @@ class QwenNPU:
         self.messages = [{"role": "system", "content": SYSTEM_MESSAGE}]
         self.thinking = False
         self.pipe = None
+        self.lines = queue.Queue()  # stdin lines, read by a side thread
+        self.eof_seen = False
 
     def setup(self):
         print("Compiling Qwen3 for NPU...")
@@ -136,15 +146,44 @@ class QwenNPU:
         print("  :save  - export the transcript")
         print("  :clear - reset the conversation")
         print("  :exit  - close")
+        print("Enter stops an answer mid-stream (partial answer kept).")
+        print("Ctrl-C exits the session at any point.")
+
+    def _read_stdin(self):
+        """Own stdin so typed input can interrupt streamed generation."""
+        while True:
+            line = sys.stdin.readline()
+            if line == "":  # Ctrl-D (POSIX), Ctrl-Z at line start (Windows)
+                self.lines.put(EOF)
+                return
+            self.lines.put(line)
+
+    def interrupted(self):
+        """True once Enter was pressed while tokens were streaming."""
+        signaled = False
+        try:
+            while True:  # drain so stray Enters do not leak to the prompt
+                line = self.lines.get_nowait()
+                signaled = True
+                if line is EOF:
+                    self.eof_seen = True
+        except queue.Empty:
+            pass
+        return signaled
 
     def generate(self, prompt):
-        """Stream tokens to stdout; return the full response text."""
+        """Stream tokens to stdout; return the response so far.
+
+        The streamer polls the stdin queue each token, so Enter (or
+        Ctrl-D followed by Enter on Windows) stops generation
+        without ending the session; the partial answer is kept.
+        """
         chunks = []
 
         def streamer(token):
             chunks.append(token)
             print(token, end="", flush=True)
-            return False
+            return self.interrupted()
 
         self.pipe.generate(prompt, self.config, streamer)
         print()  # newline after the streamed answer
@@ -172,7 +211,7 @@ class QwenNPU:
                 self.messages.append(
                     {"role": "assistant", "content": response})
 
-            except (KeyboardInterrupt, EOFError):
+            except KeyboardInterrupt:
                 break
 
 
