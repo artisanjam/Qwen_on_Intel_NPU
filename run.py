@@ -39,8 +39,10 @@ SAMPLING_TEMPERATURE = 0.6
 SAMPLING_TOP_P = 0.9
 SAMPLING_TOP_K = 20
 
+
 class EOF:
     """Sentinel: stdin closed (Ctrl-D / Ctrl-Z at the prompt)."""
+
 
 SYSTEM_MESSAGE = """\
 # System
@@ -207,9 +209,14 @@ class QwenNPU:
         return "".join(chunks)
 
     def run(self):
+        threading.Thread(target=self._read_stdin, daemon=True).start()
         while True:
             try:
-                user_input = input("\n---\nYou> ").strip()
+                print("\n---\nYou> ", end="", flush=True)
+                line = self.lines.get()
+                if line is EOF:
+                    break
+                user_input = line.strip()
                 if not user_input:
                     continue
 
@@ -227,6 +234,8 @@ class QwenNPU:
                 response = self.generate(prompt)
                 self.messages.append(
                     {"role": "assistant", "content": response})
+                if self.eof_seen:
+                    break
 
             except KeyboardInterrupt:
                 break
