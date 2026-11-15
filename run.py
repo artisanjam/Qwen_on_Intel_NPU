@@ -32,7 +32,8 @@ MAX_NEW_TOKENS = 2048
 MAX_THINKING_TOKENS = 8192
 PROMPT_RESERVE = 512  # headroom left free of history in the slot
 
-EOF = object()  # sentinel: stdin closed (Ctrl-D / Ctrl-Z at the prompt)
+class EOF:
+    """Sentinel: stdin closed (Ctrl-D / Ctrl-Z at the prompt)."""
 
 SYSTEM_MESSAGE = """\
 # System
