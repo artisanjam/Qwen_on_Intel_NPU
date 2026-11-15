@@ -73,8 +73,8 @@ class QwenNPU:
         # Device config sizes the KV-cache at compile time.
         self.pipe = ov_genai.LLMPipeline(
             MODEL_DIR, "NPU",
-            {"MAX_PROMPT_LEN": MAX_PROMPT_LEN,
-             "MAX_NEW_TOKENS": MAX_THINKING_TOKENS})
+            MAX_PROMPT_LEN=MAX_PROMPT_LEN,
+            MAX_NEW_TOKENS=MAX_THINKING_TOKENS)
         print("Ready on NPU. Type :help for commands.")
 
     def render_prompt(self):
