@@ -1,4 +1,4 @@
-# Qwen 3 8B on Intel NPU with Open﻿Vino-genai
+# Qwen 3 8B on Intel NPU with OpenVino-genai
 
 This project demonstrates running **Qwen 3 (8B)** on an **Intel Ultra Series 1 & 2 NPU** using **OpenVINO GenAI**.  
 The model is optimized with **INT4 quantization**, making it faster ⚡ and smaller 🚀.
@@ -44,7 +44,7 @@ hf download OpenVINO/Qwen3-8B-int4-cw-ov --local-dir Qwen3-8B-Instruct-NPU-Model
 - Run inference with:
 
 ```bash
-python run.py
+python -m qwen_npu
 ```
 
 ---
