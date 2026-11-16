@@ -62,9 +62,9 @@ sys.modules["jinja2"] = jinja2
 
 os.chdir(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ".")
-from config import PROMPT_BUDGET
-from session import QwenNPU
-from watchdog import strip_thinking
+from qwen_npu.config import PROMPT_BUDGET
+from qwen_npu.session import QwenNPU
+from qwen_npu.watchdog import strip_thinking
 
 failures = []
 

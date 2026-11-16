@@ -6,7 +6,7 @@ keeps thinking out of stored history.
 
 import re
 
-import config
+from . import config
 
 SENTENCE_END = re.compile(r"[.!?]")
 THINK_BLOCK = re.compile(r"<think.*?</think>\s*", re.DOTALL)

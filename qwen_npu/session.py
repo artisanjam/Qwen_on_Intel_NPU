@@ -21,8 +21,8 @@ import time
 import openvino_genai as ov_genai
 from jinja2 import Environment
 
-import config
-from watchdog import RepetitionGuard, strip_thinking
+from . import config
+from .watchdog import RepetitionGuard, strip_thinking
 
 
 class EOF:
