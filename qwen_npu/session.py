@@ -1,5 +1,4 @@
-"""Generation engine: the compiled NPU pipeline and self-managed
-conversation history.
+"""Generation engine: compiled NPU pipeline with self-managed history.
 
 The KV-cache is allocated at compile time; history is trimmed to
 fit using the model's own tokenizer for exact counts. The chat
@@ -37,7 +36,7 @@ def system_messages():
 
 
 def load_chat_template():
-    """Jinja2 template shipped with the OpenVINO model export."""
+    """Load the Jinja2 chat template shipped with the model export."""
     path = os.path.join(config.MODEL_DIR, "chat_template.jinja")
     with open(path, encoding="utf-8") as handle:
         return Environment().from_string(handle.read())
@@ -111,6 +110,7 @@ class QwenNPU:
         return "on" if self.thinking else "off"
 
     def save_transcript(self):
+        """Write the conversation to a timestamped file; return its name."""
         fname = f"chat_{int(time.time())}.txt"
         with open(fname, "w", encoding="utf-8") as handle:
             for message in self.messages[1:]:

@@ -32,7 +32,7 @@ def extract_thinking(text):
 
 
 def strip_thinking(text):
-    """Visible reply only; thinking is shown live but not stored.
+    """Visible reply only; thinking stays out of model history.
 
     A turn interrupted mid-thought leaves an unclosed block, and
     anything after the opener is thinking rather than answer.

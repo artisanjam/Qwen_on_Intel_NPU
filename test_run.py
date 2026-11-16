@@ -1,5 +1,4 @@
-"""Integration tests for trim, guard, gate, stripping and
-transcripts (stubbed deps)."""
+"""Trim, guard, gate, stripping and transcript checks (stubbed deps)."""
 import io
 import os
 import sys
