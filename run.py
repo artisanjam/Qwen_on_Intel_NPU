@@ -3,11 +3,15 @@
 The pipeline runs in plain mode with self-managed conversation
 history, rendered through the model's chat_template.jinja. The NPU
 KV-cache is allocated at compile time from MAX_PROMPT_LEN and
-MAX_NEW_TOKENS; history is trimmed to fit, so neither overflow.
+MAX_NEW_TOKENS; history is trimmed to fit using the model's own
+tokenizer for exact counts, so neither overflow.
 Rendering the template directly exposes `enable_thinking`, which
 GenerationConfig does not offer in openvino-genai 2025.3. When
 thinking is off, the template pre-fills an empty <think> block and
 the model answers directly.
+A repetition watchdog ends a turn that emits a sentence it already
+said this turn, or replays the previous answer verbatim -- the
+signature of a copy-attractor loop.
 A daemon thread owns stdin, so Enter interrupts streamed generation
 and the Ctrl key that closes stdin (Ctrl-D, Ctrl-Z on Windows)
 exits the session.
@@ -15,6 +19,7 @@ exits the session.
 
 import os
 import queue
+import re
 import sys
 import threading
 import time
@@ -45,9 +50,68 @@ SAMPLING_TOP_K = 20
 # of re-emitting it.
 REPETITION_PENALTY = 1.1
 
+# Seed for sampled decoding. 0 is the library default; any other
+# fixed int makes runs reproducible turn-by-turn, which is the
+# control a stability gate needs to compare runs.
+SAMPLING_SEED = 0
+
+# Watchdog thresholds: sentences of at least this many normalized
+# characters are tracked. Short echoes ("You're right.") are
+# conversational, not loops. Two distinct sentences replayed from
+# the previous answer mark the turn as a cross-turn copy.
+WATCH_MIN_CHARS = 40
+WATCH_PRIOR_MATCHES = 2
+
+SENTENCE_END = re.compile(r"[.!?]")
+
 
 class EOF:
     """Sentinel: stdin closed (Ctrl-D / Ctrl-Z at the prompt)."""
+
+
+def sentences(text):
+    """Normalized sentences long enough to be loop material."""
+    result = []
+    for part in SENTENCE_END.split(text or ""):
+        sentence = " ".join(part.lower().split())
+        if len(sentence) >= WATCH_MIN_CHARS:
+            result.append(sentence)
+    return result
+
+
+class RepetitionGuard:
+    """End a turn that repeats itself verbatim.
+
+    Within-turn: a tracked sentence emitted a second time ends
+    the turn. Cross-turn: tracked sentences replayed from the
+    previous answer are counted -- quoting is legitimate once, so
+    WATCH_PRIOR_MATCHES distinct replays are needed to call it a
+    loop.
+    """
+
+    def __init__(self, prior):
+        self.prior = set(sentences(prior))
+        self.seen = set()
+        self.prior_hits = 0
+        self.buffer = ""
+
+    def observe(self, token):
+        """True once the turn should stop."""
+        self.buffer += token
+        parts = SENTENCE_END.split(self.buffer)
+        self.buffer = parts[-1]  # keep the unterminated tail
+        for part in parts[:-1]:
+            sentence = " ".join(part.lower().split())
+            if len(sentence) < WATCH_MIN_CHARS:
+                continue
+            if sentence in self.seen:
+                return True
+            if sentence in self.prior:
+                self.prior_hits += 1
+                if self.prior_hits >= WATCH_PRIOR_MATCHES:
+                    return True
+            self.seen.add(sentence)
+        return False
 
 
 SYSTEM_MESSAGE = """\
@@ -99,6 +163,7 @@ class QwenNPU:
         self.config.top_p = SAMPLING_TOP_P
         self.config.top_k = SAMPLING_TOP_K
         self.config.repetition_penalty = REPETITION_PENALTY
+        self.config.rng_seed = SAMPLING_SEED
         self.messages = [{"role": "system", "content": SYSTEM_MESSAGE}]
         self.thinking = False
         self.pipe = None
@@ -113,6 +178,7 @@ class QwenNPU:
             MODEL_DIR, "NPU",
             MAX_PROMPT_LEN=MAX_PROMPT_LEN,
             MAX_NEW_TOKENS=MAX_THINKING_TOKENS)
+        self.tokenizer = self.pipe.get_tokenizer()
         print("Ready on NPU. Type :help for commands.")
 
     def render_prompt(self):
@@ -126,9 +192,10 @@ class QwenNPU:
         """Drop oldest pairs until the prompt fits the cache slot."""
         budget = MAX_PROMPT_LEN - PROMPT_RESERVE
         prompt = self.render_prompt()
-        # Character heuristic: /3 overestimates tokens, so trimming
-        # is biased conservative.
-        while len(self.messages) > 2 and len(prompt) // 3 > budget:
+        # Exact counts from the model's tokenizer, so trimming is
+        # neither over- nor under-eager.
+        while len(self.messages) > 2 and \
+                self.tokenizer.encode(prompt).input_ids.shape[-1] > budget:
             del self.messages[1:3]
             prompt = self.render_prompt()
         return prompt
@@ -196,20 +263,35 @@ class QwenNPU:
             pass
         return signaled
 
+    def previous_answer(self):
+        """Most recent assistant message, for the cross-turn guard."""
+        for message in reversed(self.messages):
+            if message["role"] == "assistant":
+                return message["content"]
+        return ""
+
     def generate(self, prompt):
         """Stream tokens to stdout; return the response so far.
 
         The streamer polls the stdin queue each token, so Enter (or
         Ctrl-D followed by Enter on Windows) stops generation
         without ending the session; the partial answer is kept.
-        Ctrl-C also ends the turn here, not the session.
+        Ctrl-C also ends the turn here, not the session. The
+        repetition guard ends the turn on verbatim self-replay,
+        with a visible notice so the gate can count events.
         """
         chunks = []
+        guard = RepetitionGuard(self.previous_answer())
 
         def streamer(token):
             chunks.append(token)
             print(token, end="", flush=True)
-            return self.interrupted()
+            if self.interrupted():
+                return True
+            if guard.observe(token):
+                print("\n[stopped: repeated phrasing]", flush=True)
+                return True
+            return False
 
         try:
             self.pipe.generate(prompt, self.config, streamer)
