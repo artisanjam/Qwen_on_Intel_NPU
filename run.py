@@ -69,14 +69,15 @@ class EOF:
     """Sentinel: stdin closed (Ctrl-D / Ctrl-Z at the prompt)."""
 
 
+def normalize(part):
+    """Lowercase, whitespace collapsed: casing is not a loop signal."""
+    return " ".join(part.lower().split())
+
+
 def sentences(text):
     """Normalized sentences long enough to be loop material."""
-    result = []
-    for part in SENTENCE_END.split(text or ""):
-        sentence = " ".join(part.lower().split())
-        if len(sentence) >= WATCH_MIN_CHARS:
-            result.append(sentence)
-    return result
+    return [s for s in map(normalize, SENTENCE_END.split(text or ""))
+            if len(s) >= WATCH_MIN_CHARS]
 
 
 class RepetitionGuard:
@@ -101,7 +102,7 @@ class RepetitionGuard:
         parts = SENTENCE_END.split(self.buffer)
         self.buffer = parts[-1]  # keep the unterminated tail
         for part in parts[:-1]:
-            sentence = " ".join(part.lower().split())
+            sentence = normalize(part)
             if len(sentence) < WATCH_MIN_CHARS:
                 continue
             if sentence in self.seen:
@@ -188,39 +189,45 @@ class QwenNPU:
             enable_thinking=self.thinking,
         )
 
+    def prompt_tokens(self, prompt):
+        """Exact token count from the model's tokenizer."""
+        return self.tokenizer.encode(prompt).input_ids.shape[-1]
+
     def trim_to_prompt_budget(self):
         """Drop oldest pairs until the prompt fits the cache slot."""
         budget = MAX_PROMPT_LEN - PROMPT_RESERVE
         prompt = self.render_prompt()
-        # Exact counts from the model's tokenizer, so trimming is
-        # neither over- nor under-eager.
-        while len(self.messages) > 2 and \
-                self.tokenizer.encode(prompt).input_ids.shape[-1] > budget:
+        while len(self.messages) > 2 and self.prompt_tokens(prompt) > budget:
             del self.messages[1:3]
             prompt = self.render_prompt()
         return prompt
 
     def handle_command(self, text):
+        """Map a colon command to the outcome it requests.
+
+        "exit" ends the session, "command" means the command was
+        handled, None means the text is an ordinary message.
+        """
         cmd = text.lower().strip()
         if cmd == ":exit":
-            return "break"
+            return "exit"
         if cmd == ":clear":
             self.messages = [{"role": "system", "content": SYSTEM_MESSAGE}]
-            return "continue"
+            return "command"
         if cmd == ":think":
             self.thinking = not self.thinking
             self.config.max_new_tokens = (
                 MAX_THINKING_TOKENS if self.thinking else MAX_NEW_TOKENS)
             state = "on" if self.thinking else "off"
             print(f"Thinking: {state}.")
-            return "continue"
+            return "command"
         if cmd == ":save":
             fname = self.save_transcript()
             print(f"Saved to {fname}")
-            return "continue"
+            return "command"
         if cmd == ":help":
             self.print_help()
-            return "continue"
+            return "command"
         return None
 
     def save_transcript(self):
@@ -313,9 +320,9 @@ class QwenNPU:
                     continue
 
                 action = self.handle_command(user_input)
-                if action == "break":
+                if action == "exit":
                     break
-                if action == "continue":
+                if action == "command":
                     continue
 
                 self.messages.append(
