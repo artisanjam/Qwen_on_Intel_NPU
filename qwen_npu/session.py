@@ -43,10 +43,9 @@ def load_chat_template():
 
 
 class QwenNPU:
-    def __init__(self):
+    def __init__(self, thinking=True):
         self.template = load_chat_template()
         self.gen = ov_genai.GenerationConfig()
-        self.gen.max_new_tokens = config.MAX_NEW_TOKENS
         self.gen.do_sample = True
         self.gen.temperature = config.SAMPLING_TEMPERATURE
         self.gen.top_p = config.SAMPLING_TOP_P
@@ -54,7 +53,10 @@ class QwenNPU:
         self.gen.repetition_penalty = config.REPETITION_PENALTY
         self.gen.rng_seed = config.SAMPLING_SEED
         self.messages = system_messages()
-        self.thinking = False
+        self.thinking = thinking
+        self.gen.max_new_tokens = (
+            config.MAX_THINKING_TOKENS
+            if thinking else config.MAX_NEW_TOKENS)
         self.pipe = None
         self.lines = queue.Queue()  # stdin lines, read by a side thread
         self.eof_seen = False
@@ -84,11 +86,16 @@ class QwenNPU:
         """Exact token count from the model's tokenizer."""
         return self.tokenizer.encode(prompt).input_ids.shape[-1]
 
+    def prompt_budget(self):
+        """Largest sendable prompt for the current mode."""
+        return (config.THINKING_PROMPT_BUDGET if self.thinking
+                else config.PROMPT_BUDGET)
+
     def trim_to_prompt_budget(self):
         """Drop oldest pairs until the prompt fits the cache slot."""
         prompt = self.render_prompt()
         while len(self.messages) > 2 and \
-                self.prompt_tokens(prompt) > config.PROMPT_BUDGET:
+                self.prompt_tokens(prompt) > self.prompt_budget():
             del self.messages[1:3]
             prompt = self.render_prompt()
         return prompt
@@ -99,7 +106,7 @@ class QwenNPU:
         A single message beyond the budget cannot be trimmed away,
         so it is declined rather than sent to an overflowing cache.
         """
-        return self.prompt_tokens(prompt) <= config.PROMPT_BUDGET
+        return self.prompt_tokens(prompt) <= self.prompt_budget()
 
     def toggle_thinking(self):
         """Flip thinking and resize the output allowance."""

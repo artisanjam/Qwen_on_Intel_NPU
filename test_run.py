@@ -36,7 +36,7 @@ class GenerationConfig:
     pass
 
 
-def make_pipe(tokens):
+def pipe_class(tokens):
     class Pipe:
         def __init__(self, *args, **kwargs):
             pass
@@ -48,12 +48,16 @@ def make_pipe(tokens):
             for token in tokens:
                 if streamer(token):
                     return
-    return Pipe()
+    return Pipe
+
+
+def make_pipe(tokens):
+    return pipe_class(tokens)()
 
 
 ov = types.ModuleType("openvino_genai")
 ov.GenerationConfig = GenerationConfig
-ov.LLMPipeline = make_pipe([])
+ov.LLMPipeline = pipe_class([])
 sys.modules["openvino_genai"] = ov
 
 jinja2 = types.ModuleType("jinja2")
@@ -62,6 +66,7 @@ sys.modules["jinja2"] = jinja2
 
 os.chdir(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ".")
+from qwen_npu import config
 from qwen_npu.config import PROMPT_BUDGET
 from qwen_npu.session import QwenNPU
 from qwen_npu.watchdog import extract_thinking, strip_thinking
@@ -227,6 +232,28 @@ with contextlib.redirect_stdout(out):
     session.generate("prompt")
 check("think-then-speech prior quote passes",
       "[stopped: repeated phrasing]" not in out.getvalue())
+
+# 17. thinking mode trims history harder to guarantee output room
+session = new_session([])
+check("thinking on by default", session.thinking)
+session.thinking = False
+check("plain budget", session.prompt_budget() == config.PROMPT_BUDGET)
+session.thinking = True
+check("thinking budget",
+      session.prompt_budget() == config.THINKING_PROMPT_BUDGET)
+check("thinking reserve exceeds plain reserve",
+      config.THINKING_RESERVE > config.PROMPT_RESERVE)
+
+# 18. --thinking reaches the session without starting the loop
+from qwen_npu import cli
+launched = {}
+cli.run = lambda session: launched.update(session=session)
+with contextlib.redirect_stdout(io.StringIO()):
+    cli.main(["--thinking", "off"])
+check("launch flag off honored", launched["session"].thinking is False)
+with contextlib.redirect_stdout(io.StringIO()):
+    cli.main([])
+check("launch flag defaults on", launched["session"].thinking is True)
 
 print("failures:", failures)
 sys.exit(1 if failures else 0)

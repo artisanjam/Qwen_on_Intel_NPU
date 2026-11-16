@@ -4,8 +4,11 @@ The engine (qwen_npu.session.QwenNPU) owns history, budget and generation;
 this module turns stdin into turns. Enter or Ctrl-C stops an
 answer mid-stream and the partial answer is kept; Ctrl-C at the
 prompt exits, as does the stdin-close key (Ctrl-D, Ctrl-Z on
-Windows).
+Windows). Thinking mode starts from --thinking (default on) and
+:think flips it at the prompt.
 """
+
+import argparse
 
 from .session import EOF, QwenNPU, system_messages
 
@@ -84,11 +87,19 @@ def run(session):
             break
 
 
-def main():
-    session = QwenNPU()
+def main(argv=None):
+    parser = argparse.ArgumentParser(
+        prog="python -m qwen_npu",
+        description="Local Qwen3 chat on the Intel NPU.")
+    parser.add_argument(
+        "--thinking", choices=("on", "off"), default="on",
+        help="reasoning block before each reply (default on)")
+    args = parser.parse_args(argv)
+    session = QwenNPU(thinking=args.thinking == "on")
     session.setup()
     session.start_stdin()
-    print("Ready on NPU. Type :help for commands.")
+    print(f"Ready on NPU. Thinking: {args.thinking}.")
+    print("Type :help for commands.")
     run(session)
 
 

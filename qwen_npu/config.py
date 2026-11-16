@@ -4,10 +4,15 @@ MODEL_DIR is the OpenVINO model export directory.
 
 Cache slots are fixed at NPU compile time; prompts beyond
 MAX_PROMPT_LEN are rejected, and generation truncates when the
-cache cannot hold prompt plus output. MAX_NEW_TOKENS caps a
-plain reply; MAX_THINKING_TOKENS caps a thinking reply;
-PROMPT_RESERVE stays free of history, so PROMPT_BUDGET is the
-largest sendable prompt.
+cache cannot hold prompt plus output. The slot is shared between
+history and output, so headroom shrinks as history grows:
+PROMPT_RESERVE stays free of history while thinking is off, and
+THINKING_RESERVE stays free while thinking is on, guaranteeing
+each turn room for thinking plus reply at the cost of a shorter
+visible history during thinking turns. PROMPT_BUDGET and
+THINKING_PROMPT_BUDGET are the largest sendable prompts in the
+two modes. MAX_NEW_TOKENS caps a plain reply; MAX_THINKING_TOKENS
+caps a thinking reply.
 
 Sampling runs at Qwen3's recommended settings; greedy decoding
 on the int4 build falls into repetitive basins in long thinking
@@ -32,6 +37,9 @@ MAX_NEW_TOKENS = 2048
 MAX_THINKING_TOKENS = 8192
 PROMPT_RESERVE = 512
 PROMPT_BUDGET = MAX_PROMPT_LEN - PROMPT_RESERVE
+
+THINKING_RESERVE = 2048
+THINKING_PROMPT_BUDGET = MAX_PROMPT_LEN - THINKING_RESERVE
 
 SAMPLING_TEMPERATURE = 0.6
 SAMPLING_TOP_P = 0.9
@@ -65,6 +73,8 @@ the reply -- planning is not the turn.
 one, and the dialogue repairs imperfect turns.
 - Own your contributions: propose, ask, push back when \
 warranted.
+- Contribute exploration over certainty: offer \
+possibilities, test them, revise as you learn.
 - Lead with the substance, not an acknowledgment.
 - End on where you stand; ask only when you need the \
 answer to continue.
