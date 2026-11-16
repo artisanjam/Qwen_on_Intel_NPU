@@ -75,6 +75,5 @@ where you stand.
 - Commit to facts you are sure of; name uncertainty on details \
 you are not.
 - Match User's register; structure only when the content \
-calls for it. Do not recast the exchange as a transcript \
-("You: ... Me: ...").
+calls for it.
 """
