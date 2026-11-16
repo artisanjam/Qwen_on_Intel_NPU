@@ -23,7 +23,8 @@ import openvino_genai as ov_genai
 from jinja2 import Environment
 
 from . import config
-from .watchdog import RepetitionGuard, extract_thinking, strip_thinking
+from .watchdog import (RepetitionGuard, extract_thinking, strip_thinking,
+                       to_ascii)
 
 
 class EOF:
@@ -166,16 +167,20 @@ class QwenNPU:
         Ctrl-C also ends the turn here, not the session. The
         repetition guard ends the turn on verbatim self-replay,
         with a visible notice so the gate can count events.
+        Every part passes through to_ascii, so the output
+        constraint holds regardless of what the model emits.
         """
         chunks = []
         guard = RepetitionGuard(self.previous_answer())
 
         def streamer(token):
-            chunks.append(token)
-            print(token, end="", flush=True)
+            part = to_ascii(token)
+            if part:
+                chunks.append(part)
+                print(part, end="", flush=True)
             if self.interrupted():
                 return True
-            if guard.observe(token):
+            if guard.observe(part):
                 print("\n[stopped: repeated phrasing]", flush=True)
                 return True
             return False

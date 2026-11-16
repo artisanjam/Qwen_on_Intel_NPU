@@ -1,8 +1,9 @@
-"""Loop detection and think-block handling for streamed text.
+"""Loop detection, ASCII enforcement and think-block handling.
 
-The guard ends a turn that repeats itself verbatim; stripping
-keeps thinking out of stored history, and extraction keeps it for
-the saved transcript.
+The guard ends a turn that repeats itself verbatim; to_ascii
+enforces the plain-ASCII output constraint the prompt states;
+stripping keeps thinking out of stored history, and extraction
+keeps it for the saved transcript.
 """
 
 import re
@@ -14,6 +15,22 @@ THINK_BLOCK = re.compile(r"<think.*?</think>\s*", re.DOTALL)
 THINK_CAPTURE = re.compile(r"<think>(.*?)</think>", re.DOTALL)
 THINK_OPEN = "<think>"
 THINK_CLOSE = "</think>"
+
+# Typographic punctuation maps to its ASCII counterpart; anything
+# else non-ASCII (decorative glyphs) is dropped.
+ASCII_MAP = {
+    "\u2018": "'", "\u2019": "'",  # curly single quotes
+    "\u201c": '"', "\u201d": '"',  # curly double quotes
+    "\u2013": "-", "\u2014": "-",  # en/em dashes
+    "\u2026": "...",               # ellipsis
+    "\u00a0": " ",                 # non-breaking space
+}
+
+
+def to_ascii(part):
+    """Plain ASCII only: typographic variants map, glyphs drop."""
+    mapped = "".join(ASCII_MAP.get(ch, ch) for ch in part)
+    return "".join(ch for ch in mapped if ch.isascii())
 
 
 def extract_thinking(text):

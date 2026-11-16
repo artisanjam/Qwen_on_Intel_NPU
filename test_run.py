@@ -255,5 +255,19 @@ with contextlib.redirect_stdout(io.StringIO()):
     cli.main([])
 check("launch flag defaults on", launched["session"].thinking is True)
 
+# 19. streamed output is ASCII-clean: typographic punctuation maps,
+# decorative glyphs drop
+session = new_session(["Hey ", "\U0001f60a ",
+                       "don\u2019t \u2014 worry"])
+session.messages.append({"role": "user", "content": "hello there"})
+out = io.StringIO()
+with contextlib.redirect_stdout(out):
+    response = session.generate("prompt")
+check("response ascii-clean",
+      all(ord(ch) < 128 for ch in response)
+      and "\U0001f60a" not in out.getvalue())
+check("typographic punctuation mapped",
+      "don't - worry" in response)
+
 print("failures:", failures)
 sys.exit(1 if failures else 0)
