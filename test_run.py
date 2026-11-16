@@ -1,4 +1,4 @@
-"""Integration tests for run.py trim, guard, gate, stripping
+"""Integration tests for trim, guard, gate and stripping
 (stubbed deps)."""
 import io
 import os
@@ -62,7 +62,9 @@ sys.modules["jinja2"] = jinja2
 
 os.chdir(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ".")
-import run
+from config import PROMPT_BUDGET
+from session import QwenNPU
+from watchdog import strip_thinking
 
 failures = []
 
@@ -74,7 +76,7 @@ def check(name, ok):
 
 
 def new_session(tokens):
-    session = run.QwenNPU()
+    session = QwenNPU()
     session.pipe = make_pipe(tokens)
     session.tokenizer = FakeTokenizer()
     return session
@@ -86,7 +88,7 @@ for i in range(8):
     session.messages.append({"role": "user", "content": "u" * 1500})
     session.messages.append({"role": "assistant", "content": "a" * 1500})
 prompt = session.trim_to_prompt_budget()
-check("trim under budget", len(prompt) // 3 <= run.PROMPT_BUDGET)
+check("trim under budget", len(prompt) // 3 <= PROMPT_BUDGET)
 check("trim keeps recent pair",
       session.messages[-2]["content"] == "u" * 1500)
 
@@ -130,7 +132,7 @@ check("one echo passes", "[stopped: repeated phrasing]" not in out.getvalue())
 # 5. a turn that alone outgrows the budget is not sendable
 session = new_session([])
 session.messages.append({"role": "user",
-                         "content": "x" * (run.PROMPT_BUDGET * 3 + 9)})
+                         "content": "x" * (PROMPT_BUDGET * 3 + 9)})
 prompt = session.trim_to_prompt_budget()
 check("oversized turn declined", not session.sendable(prompt))
 
@@ -141,15 +143,15 @@ check("ordinary turn sendable", session.sendable(session.render_prompt()))
 
 # 7. closed think block is stripped from the stored reply
 raw = "<think> mulling over the question </think>Here is the answer."
-check("closed think stripped", run.strip_thinking(raw) == "Here is the answer.")
+check("closed think stripped", strip_thinking(raw) == "Here is the answer.")
 
 # 8. interrupted turn: unclosed opener drops everything after it
 raw = "<think> mulling over the question"
-check("unclosed think drops tail", run.strip_thinking(raw) == "")
+check("unclosed think drops tail", strip_thinking(raw) == "")
 
 # 9. ordinary reply passes through untouched
 check("plain reply untouched",
-      run.strip_thinking("no thinking here.") == "no thinking here.")
+      strip_thinking("no thinking here.") == "no thinking here.")
 
 print("failures:", failures)
 sys.exit(1 if failures else 0)
