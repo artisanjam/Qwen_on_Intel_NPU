@@ -5,4 +5,5 @@ Qwen3-8B-Instruct-NPU-Model/
 qwen-py3.12-env/
 
 # Saved chats
+archive/
 chat_*.txt
