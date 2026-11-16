@@ -7,3 +7,6 @@ qwen-py3.12-env/
 # Saved chats
 archive/
 chat_*.txt
+
+# Compiled Python files
+__pycache__/

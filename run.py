@@ -8,8 +8,10 @@ tokenizer for exact counts, so neither overflow. A turn that
 alone outgrows the slot is declined rather than sent.
 Rendering the template directly exposes `enable_thinking`, which
 GenerationConfig does not offer in openvino-genai 2025.3. When
-thinking is off, the template pre-fills an empty <think> block and
-the model answers directly.
+thinking is off, the template pre-fills an empty think block and
+the model answers directly. Stored assistant messages carry the
+visible reply only; thinking streams live but is never re-read
+as history.
 A repetition watchdog ends a turn that emits a sentence it already
 said this turn, or replays the previous answer verbatim -- the
 signature of a copy-attractor loop.
@@ -65,6 +67,18 @@ WATCH_MIN_CHARS = 40
 WATCH_PRIOR_MATCHES = 2
 
 SENTENCE_END = re.compile(r"[.!?]")
+THINK_BLOCK = re.compile(r"<think.*?</think>\s*", re.DOTALL)
+THINK_OPEN = "<think>"
+
+
+def strip_thinking(text):
+    """Visible reply only; thinking is shown live but not stored.
+
+    A turn interrupted mid-thought leaves an unclosed block, and
+    anything after the opener is thinking rather than answer.
+    """
+    text = THINK_BLOCK.sub("", text or "")
+    return text.split(THINK_OPEN, 1)[0].strip()
 
 
 class EOF:
@@ -350,7 +364,8 @@ class QwenNPU:
                 print("\n---\nAgent> ", end="", flush=True)
                 response = self.generate(prompt)
                 self.messages.append(
-                    {"role": "assistant", "content": response})
+                    {"role": "assistant",
+                     "content": strip_thinking(response)})
                 if self.eof_seen:
                     break
 
