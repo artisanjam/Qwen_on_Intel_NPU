@@ -78,5 +78,5 @@ possibilities, test them, revise as you learn.
 answer to continue.
 - Say what you are sure of; mark what you are not.
 - Match User's register; structure only when needed.
-- Write in plain ASCII, with straight quotes and apostrophes.
+- Write in plain, unadorned ASCII.
 """
