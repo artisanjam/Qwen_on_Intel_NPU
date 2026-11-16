@@ -189,5 +189,44 @@ check("transcript shows thought and reply",
       and "Assistant: Here is the answer." in saved)
 check("transcript carries no think tags", "<think" not in saved)
 
+# 14. a sentence formulated in thought, then spoken verbatim, is
+# not a loop
+phrase = ("Hey there! I'm doing well, thanks for asking. It's been "
+          "a great day so far--what have you been up to?")
+session = new_session(["<think> ", phrase, "</think>", " ", phrase,
+                       " Sure about that."])
+session.messages.append({"role": "user", "content": "hello there"})
+out = io.StringIO()
+with contextlib.redirect_stdout(out):
+    response = session.generate("prompt")
+check("thought-to-speech repeat passes",
+      "[stopped: repeated phrasing]" not in out.getvalue())
+check("full reply kept", len(response) == len("<think> ") +
+      2 * len(phrase) + len("</think>") + len(" ") +
+      len(" Sure about that."))
+
+# 15. repetition inside the thinking channel still stops
+tokens = ["<think> ", long[:30], long[30:] + ". ", " mulling over it. ",
+          long[:30], long[30:] + ". "]
+session = new_session(tokens)
+session.messages.append({"role": "user", "content": "hello there"})
+out = io.StringIO()
+with contextlib.redirect_stdout(out):
+    session.generate("prompt")
+check("within-think repeat stops",
+      "[stopped: repeated phrasing]" in out.getvalue())
+
+# 16. a prior sentence formulated in thought and then spoken once
+# is one quote, not two replays
+session = new_session(["<think> ", s1[:30], s1[30:] + ". ", "</think>",
+                       " ", s1[:30], s1[30:] + ". ", " and fresh words"])
+session.messages.append({"role": "assistant", "content": prior})
+session.messages.append({"role": "user", "content": "go on"})
+out = io.StringIO()
+with contextlib.redirect_stdout(out):
+    session.generate("prompt")
+check("think-then-speech prior quote passes",
+      "[stopped: repeated phrasing]" not in out.getvalue())
+
 print("failures:", failures)
 sys.exit(1 if failures else 0)
