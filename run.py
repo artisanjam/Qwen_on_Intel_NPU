@@ -4,7 +4,8 @@ The pipeline runs in plain mode with self-managed conversation
 history, rendered through the model's chat_template.jinja. The NPU
 KV-cache is allocated at compile time from MAX_PROMPT_LEN and
 MAX_NEW_TOKENS; history is trimmed to fit using the model's own
-tokenizer for exact counts, so neither overflow.
+tokenizer for exact counts, so neither overflow. A turn that
+alone outgrows the slot is declined rather than sent.
 Rendering the template directly exposes `enable_thinking`, which
 GenerationConfig does not offer in openvino-genai 2025.3. When
 thinking is off, the template pre-fills an empty <think> block and
@@ -36,6 +37,7 @@ MAX_PROMPT_LEN = 4096
 MAX_NEW_TOKENS = 2048
 MAX_THINKING_TOKENS = 8192
 PROMPT_RESERVE = 512  # headroom left free of history in the slot
+PROMPT_BUDGET = MAX_PROMPT_LEN - PROMPT_RESERVE
 
 # Sampled decoding at Qwen3's recommended settings. Greedy
 # decoding on the int4 build falls into repetitive basins in long
@@ -195,12 +197,20 @@ class QwenNPU:
 
     def trim_to_prompt_budget(self):
         """Drop oldest pairs until the prompt fits the cache slot."""
-        budget = MAX_PROMPT_LEN - PROMPT_RESERVE
         prompt = self.render_prompt()
-        while len(self.messages) > 2 and self.prompt_tokens(prompt) > budget:
+        while len(self.messages) > 2 and \
+                self.prompt_tokens(prompt) > PROMPT_BUDGET:
             del self.messages[1:3]
             prompt = self.render_prompt()
         return prompt
+
+    def sendable(self, prompt):
+        """False when even an emptied history outgrows the slot.
+
+        A single message beyond the budget cannot be trimmed away,
+        so it is declined rather than sent to an overflowing cache.
+        """
+        return self.prompt_tokens(prompt) <= PROMPT_BUDGET
 
     def handle_command(self, text):
         """Map a colon command to the outcome it requests.
@@ -328,6 +338,14 @@ class QwenNPU:
                 self.messages.append(
                     {"role": "user", "content": user_input})
                 prompt = self.trim_to_prompt_budget()
+                # A turn longer than the slot survives trimming only
+                # by deleting the user's own message, so decline the
+                # turn instead; history stays aligned and trimmable.
+                if not self.sendable(prompt):
+                    self.messages.pop()
+                    print("Message too long for the prompt slot;"
+                          " not sent.")
+                    continue
 
                 print("\n---\nAgent> ", end="", flush=True)
                 response = self.generate(prompt)
