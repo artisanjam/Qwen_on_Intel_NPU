@@ -39,6 +39,12 @@ SAMPLING_TEMPERATURE = 0.6
 SAMPLING_TOP_P = 0.9
 SAMPLING_TOP_K = 20
 
+# Penalize copying tokens already present in the context.
+# Sampling alone cannot escape a deep copy-attractor once a
+# recycled block sits in history; the penalty raises the cost
+# of re-emitting it.
+REPETITION_PENALTY = 1.1
+
 
 class EOF:
     """Sentinel: stdin closed (Ctrl-D / Ctrl-Z at the prompt)."""
@@ -92,6 +98,7 @@ class QwenNPU:
         self.config.temperature = SAMPLING_TEMPERATURE
         self.config.top_p = SAMPLING_TOP_P
         self.config.top_k = SAMPLING_TOP_K
+        self.config.repetition_penalty = REPETITION_PENALTY
         self.messages = [{"role": "system", "content": SYSTEM_MESSAGE}]
         self.thinking = False
         self.pipe = None
