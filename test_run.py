@@ -1,8 +1,9 @@
-"""Integration tests for trim, guard, gate and stripping
-(stubbed deps)."""
+"""Integration tests for trim, guard, gate, stripping and
+transcripts (stubbed deps)."""
 import io
 import os
 import sys
+import tempfile
 import types
 import contextlib
 
@@ -64,7 +65,7 @@ os.chdir(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ".")
 from qwen_npu.config import PROMPT_BUDGET
 from qwen_npu.session import QwenNPU
-from qwen_npu.watchdog import strip_thinking
+from qwen_npu.watchdog import extract_thinking, strip_thinking
 
 failures = []
 
@@ -152,6 +153,42 @@ check("unclosed think drops tail", strip_thinking(raw) == "")
 # 9. ordinary reply passes through untouched
 check("plain reply untouched",
       strip_thinking("no thinking here.") == "no thinking here.")
+
+# 10. closed think block yields its thinking
+check("thinking extracted from closed block",
+      extract_thinking("<think> mulling over the question </think>"
+                       "Here is the answer.") == "mulling over the question")
+
+# 11. interrupted turn: everything after the opener is thinking
+check("unclosed opener yields thinking",
+      extract_thinking("<think> mulling over the question")
+      == "mulling over the question")
+
+# 12. ordinary reply has no thinking
+check("plain reply yields no thinking",
+      extract_thinking("no thinking here.") == "")
+
+# 13. record_answer keeps thinking for the transcript only;
+# saved chat shows the thought without think tags
+session = new_session([])
+session.messages.append({"role": "user", "content": "hello there"})
+session.record_answer("<think> mulling over the question </think>"
+                      "Here is the answer.")
+entry = session.messages[-1]
+check("history content stays stripped",
+      entry["content"] == "Here is the answer.")
+check("thinking retained for transcript",
+      entry.get("thinking") == "mulling over the question")
+with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
+    os.chdir(tmpdir)
+    fname = session.save_transcript()
+    with open(fname, encoding="utf-8") as handle:
+        saved = handle.read()
+os.chdir(os.path.dirname(os.path.abspath(__file__)))
+check("transcript shows thought and reply",
+      "Assistant thought:\nmulling over the question" in saved
+      and "Assistant: Here is the answer." in saved)
+check("transcript carries no think tags", "<think" not in saved)
 
 print("failures:", failures)
 sys.exit(1 if failures else 0)

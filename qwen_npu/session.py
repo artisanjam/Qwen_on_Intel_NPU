@@ -5,8 +5,10 @@ The KV-cache is allocated at compile time; history is trimmed to
 fit using the model's own tokenizer for exact counts. The chat
 template is rendered directly, which exposes `enable_thinking`,
 unavailable in GenerationConfig on openvino-genai 2025.3.
-Stored assistant messages carry the visible reply only; thinking
-streams live but is never re-read as history. A repetition guard
+Stored assistant messages carry the visible reply as history;
+thinking is kept in a separate field for transcripts only, so it
+streams live and is saved, but is never re-read as history. A
+repetition guard
 ends a turn that replays phrasing verbatim.
 A daemon-threaded stdin lets Enter interrupt streamed generation;
 the partial answer is kept.
@@ -22,7 +24,7 @@ import openvino_genai as ov_genai
 from jinja2 import Environment
 
 from . import config
-from .watchdog import RepetitionGuard, strip_thinking
+from .watchdog import RepetitionGuard, extract_thinking, strip_thinking
 
 
 class EOF:
@@ -113,6 +115,9 @@ class QwenNPU:
         with open(fname, "w", encoding="utf-8") as handle:
             for message in self.messages[1:]:
                 role = message["role"].capitalize()
+                thinking = message.get("thinking")
+                if thinking:
+                    handle.write(f"{role} thought:\n{thinking}\n\n")
                 handle.write(f"{role}: {message['content']}\n\n")
         return fname
 
@@ -176,6 +181,14 @@ class QwenNPU:
         return "".join(chunks)
 
     def record_answer(self, response):
-        """Store the visible reply only; thinking is not history."""
-        self.messages.append(
-            {"role": "assistant", "content": strip_thinking(response)})
+        """Store the visible reply; thinking rides along for saves.
+
+        The history field holds the reply only, so the template
+        never re-reads thinking; the extra key is inert to the
+        template and survives into the saved transcript.
+        """
+        entry = {"role": "assistant", "content": strip_thinking(response)}
+        thinking = extract_thinking(response)
+        if thinking:
+            entry["thinking"] = thinking
+        self.messages.append(entry)

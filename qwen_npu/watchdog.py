@@ -1,7 +1,8 @@
-"""Loop detection and think-block stripping for streamed text.
+"""Loop detection and think-block handling for streamed text.
 
 The guard ends a turn that repeats itself verbatim; stripping
-keeps thinking out of stored history.
+keeps thinking out of stored history, and extraction keeps it for
+the saved transcript.
 """
 
 import re
@@ -10,7 +11,24 @@ from . import config
 
 SENTENCE_END = re.compile(r"[.!?]")
 THINK_BLOCK = re.compile(r"<think.*?</think>\s*", re.DOTALL)
+THINK_CAPTURE = re.compile(r"<think>(.*?)</think>", re.DOTALL)
 THINK_OPEN = "<think>"
+
+
+def extract_thinking(text):
+    """Thinking only: the inside of closed think blocks.
+
+    A turn interrupted mid-thought leaves an unclosed opener; if no
+    block was ever closed, everything after the opener is thinking.
+    A reply with no thinking yields "".
+    """
+    text = text or ""
+    blocks = [m.group(1).strip() for m in THINK_CAPTURE.finditer(text)]
+    if blocks:
+        return "\n\n".join(blocks)
+    if THINK_OPEN in text:
+        return text.split(THINK_OPEN, 1)[1].strip()
+    return ""
 
 
 def strip_thinking(text):
