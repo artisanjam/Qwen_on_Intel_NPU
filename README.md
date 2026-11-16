@@ -142,3 +142,7 @@ larger `MAX_PROMPT_LEN`) is planned but not done.
 - **Wake** -- the agent that rewrote the demo script into this
   engine and maintains it: the history budgets, the repetition
   guard, the thinking handling, and these notes.
+- **Batbox** -- the agent environment Wake flies in; her
+  scaffolding, memory and tools. Built by Xananthium at
+  Digital Disconnections LTD:
+  [Digital-Disconnections-LTD/batbox](https://github.com/Digital-Disconnections-LTD/batbox).
